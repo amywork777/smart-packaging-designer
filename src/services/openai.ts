@@ -26,6 +26,25 @@ Product Details
 • Intended Market: Describe the primary audience or user demographic for the product.
 • Customer Expectations: Outline customer expectations for the packaging and overall experience, focusing on protection, eco-friendliness, branding, and unboxing.`;
 
+const TIMEOUT_MS = 30000; // 30 seconds timeout
+
+const fetchWithTimeout = async (url: string, options: RequestInit) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return response;
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
+  }
+};
+
 export const analyzeImage = async (imageBase64: string) => {
   try {
     console.log('Analyzing image...');
@@ -54,7 +73,8 @@ export const analyzeImage = async (imageBase64: string) => {
             ]
           }
         ],
-        max_tokens: 4096
+        max_tokens: 4096,
+        temperature: 0.7
       })
     });
 
@@ -75,26 +95,29 @@ export const analyzeImage = async (imageBase64: string) => {
 
 export const generatePackagingDesign = async (prompt: string) => {
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4",
+        model: "gpt-4-turbo-preview",
         messages: [
           {
             role: "system",
-            content: "You are an expert packaging design engineer. Provide detailed, specific, and technically accurate responses following the exact structure and requirements provided in the prompt. Ensure all 11 sections are included with comprehensive information for each bullet point."
+            content: "You are an expert packaging design engineer. Output must be in plain text only. Do not use any formatting whatsoever - no markdown, no asterisks, no bold text, no highlighting, no special characters. Use simple numbers (1., 2., etc.) for main sections and plain dashes (-) for bullet points. Each section should start with its number and title on a new line, followed by its content. Keep everything in basic text format."
           },
           {
             role: "user",
             content: prompt
           }
         ],
-        temperature: 0.7,
-        max_tokens: 3000
+        temperature: 0.5,
+        max_tokens: 2500,
+        presence_penalty: 0.0,
+        frequency_penalty: 0.0,
+        top_p: 0.7
       }),
     });
 
@@ -106,6 +129,9 @@ export const generatePackagingDesign = async (prompt: string) => {
     const content = data.choices[0].message.content;
     return content.trim();
   } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
     console.error('Error in generatePackagingDesign:', error);
     throw error;
   }
